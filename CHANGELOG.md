@@ -1,0 +1,434 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.14.0] - 2026-10-15
+
+Regenerated from Kion **3.14.15**, **3.15.14**, **3.16.6** and **3.17.3**
+(previously 3.14.14, 3.15.13, 3.16.5 and 3.17.1).
+
+### Added
+
+- **OAuth2 client and grant management on `v3_17`**: `GetOAuthClients`,
+  `GetOAuthClient`, `PostOAuthClient`, `PutOAuthClient`, `DeleteOAuthClient`,
+  `PostOAuthClientRotateSecret` (`/v3/oauth2/clients…`), plus `GetOAuthGrants`
+  and `DeleteOAuthGrant` (`/v3/oauth2/grants…`).
+- **The Lux MCP endpoint on `v3_17`**: `GetAIMCP` / `PostAIMCP` (`/v3/ai/mcp`,
+  JSON-RPC) and `GetAIMCPProtectedResourceMetadata` (its OAuth
+  protected-resource metadata).
+- **`GET /beta/diagnostic/billing-report` (`v3_16`, `v3_17`)**: each item gains
+  `last_clickhouse_sync`, the time the payer month was last synced into
+  ClickHouse (null when ClickHouse is disabled or it never synced).
+
+### Changed
+
+- **BREAKING (`v3_16`, `v3_17`, beta endpoint)**: the `GET
+  /beta/diagnostic/billing-report` `Status` filter is now an enum: `queued`,
+  `in_progress`, `processed`, `sync_needed`, `synced`, `failed`, `deleted`. Code
+  that passed a free-form string must use one of these; `sync_needed` and
+  `synced` return 400 when ClickHouse is disabled.
+- **BREAKING (`v3_16`, `v3_17`, beta endpoint)**: each response item's `status`
+  is the same enum. In Go its type changes from `OptString` to
+  `OptDiagnosticBillingReportStatus`, and the client validates it: a value
+  outside the enum fails the whole call with a `validate` error. The previous
+  spec documented `pending` and `error`, which the enum no longer has, so a Kion
+  server older than 3.16.6 / 3.17.3 that returns them fails this call in Go.
+
+### Fixed
+
+- **Refresh MRs list the operations a refresh adds and removes.** The
+  "Operations added/removed" section of every scheduled refresh MR said
+  "(none reported)": `refresh-and-mr.sh` called `diff-ops.sh` with no arguments,
+  a usage error that `2>/dev/null || true` hid. `diff-ops.sh --base <ref>
+  [VERSION...]` now compares each version's committed client at a git ref with
+  the working tree, and the refresh calls it with `--base HEAD^`. If it fails,
+  the MR says so instead of reporting no changes.
+- **CI fails when it would test one client and publish another.** The test
+  jobs run on code regenerated from the committed spec; the publish jobs ship
+  the committed code. When the two differed, `generate:python`, `generate:ts`
+  and `spec:generate` only printed a note and passed. They now fail. For Go,
+  versions whose spec moved (a new Kion tag, or `master`) are still only
+  reported; the refresh MR picks those up.
+
+## [0.13.0] - 2026-09-29
+
+### Fixed
+
+- **Spec generation is deterministic, and colliding portal types resolve to the
+  public v3 model.** Portal declares same-named types in several packages
+  (`PaginationQuery` in v3/model and beta/model; `Category` and
+  `ComplianceProgramStatus` in v3/model and the internal domain packages).
+  go-swagger resolved each clash by random map order and merged the two into a
+  hybrid, so regenerating the identical release tag gave different specs (1 run
+  in 4 on 3.17.1, which is what failed `spec:generate` on main for 0.12.0).
+  go-swagger is now built with `patches/go-swagger-v0.33.1-deterministic.patch`,
+  and the v3 models always win. Effect on the committed specs:
+  - **`v3_15`, `v3_16` — breaking for code that referenced it:**
+    `PaginationQuery.Augmented` is removed. Those two versions had picked up
+    beta's `PaginationQuery`; in v3 the field is `swagger:ignore`. Decoding is
+    unaffected: the Go client skips unknown fields and Python keeps them in
+    `additional_properties`.
+  - **All versions:** `Category` now carries the public model's description
+    rather than the internal domain type's. Documentation only.
+
+## [0.12.0] - 2026-09-29
+
+### Added
+
+- **Additional Cloud Access Role types on `v3_17`**, regenerated from the Kion
+  3.17.1 release tag — the same change 0.11.0 brought to `v3_15` and `v3_16`. The
+  OU and Project cloud-access-role create/update bodies (`POST`/`PATCH`
+  `/v3/ou-cloud-access-role`, `/v3/project-cloud-access-role`) accept role types
+  other than User, via six optional fields: `cloud_access_role_type_id`
+  (1 User, 2 Custom Trust, 3 Account, 4 Service), `aws_iam_role_trust_policy`,
+  `aws_trusted_account_numbers`, `aws_trusted_services`, `aws_partition` and
+  `aws_create_instance_profile`. They also appear on every response carrying a
+  cloud access role (14 endpoints, including `/v3/me/cloud-access-role` and the
+  `/v4/*-cloud-access-role` lists). Additive only — `oasdiff breaking` reports
+  nothing. `v3_14` (3.14.14), `v3_15` (3.15.13) and `v3_16` (3.16.5) regenerate
+  byte-identically from their tags, so every supported version now reports a
+  real Kion release from `KionRelease`.
+
+- **`KionRelease` / `kion_release` / `kionRelease`** in every lane: the exact Kion
+  release a sub-package was generated from (`"v3_17"` → `"3.17.1"`), alongside the
+  existing `KionVersion` minor mapping. Also exported as the `KionReleases` /
+  `KION_RELEASES` map. A value that is not a bare `X.Y.Z` marks an unreleased
+  branch head; until the first tag-based refresh lands, every version reports the
+  support branch it was last generated from.
+
+### Changed
+
+- **Sub-packages are generated from Kion release tags, not support-branch heads.**
+  `v3_NN` now tracks the newest `3.NN.<patch>` portal tag. Support branches carry
+  API that has not shipped, so the SDK could expose endpoints a customer's Kion
+  does not have (`support-3.17.x` was ~400 commits and +7.5k lines of public API
+  past `3.17.1`). The first refresh after this change may therefore *remove*
+  operations or fields that were generated from unreleased code.
+- The scheduled refresh MR now lists, per sub-package, the Kion release it moves
+  from and to, and names them in its title. A refresh where only the release
+  moved (no API change) is labelled as metadata-only with a patch-bump suggestion.
+- `make check-versions` keys a new version on its first release tag rather than
+  the branch cut, and ignores support branches older than the tracked window. It
+  was permanently red on portal's never-deleted `support-3.12.x`/`support-3.13.x`.
+- python lane: `make lint`/`make fmt` use the ruff locked in `uv.lock` (as CI
+  does) instead of `uvx ruff` (newest release, so local lint drifted from CI), and
+  `lint` plus the `test:python` CI job now enforce `ruff format --check`.
+
+- **`master` is no longer published to the GitHub mirrors.** It tracks
+  portal/master — unreleased, internal/dev only — and now ships to the GitLab
+  mirrors alone. The GitHub jobs strip it (`scripts/strip-subpackage.sh`: the
+  sub-package, its `KionVersions`/`KionReleases` entries and the npm
+  `./master` export) before building and publishing, and `publish-lane.sh`
+  refuses to publish if `EXCLUDE_SUBPACKAGES` is still present. GitHub consumers
+  importing `…/master` will stop resolving it on the next release.
+
+### Fixed
+
+- **Local `make refresh-spec` typed every money field as an object.** go-swagger
+  renders `decimal.Decimal` as a string (which fixspec retypes to `number`) only
+  if its TextMarshaler check can import `encoding` through the GOROOT baked into
+  the swagger binary. `bin/swagger` is built once and kept, so after a Go upgrade
+  that removed the old install (Homebrew deletes old Cellar versions) the import
+  failed silently and ~60 decimal fields per version came out as `$ref: Decimal`
+  (an empty object). Valid OpenAPI, so nothing noticed; CI was unaffected because
+  it builds swagger fresh. `refresh-spec` now runs swagger with the scanning
+  toolchain's `GOROOT`, and fixspec refuses to generate if the struct-shaped
+  decimal ever appears (`checkDecimalsNotObjects`). Verified: the stale binary now
+  reproduces main's CI-generated `v3_16` spec byte for byte.
+
+## [0.11.0] - 2026-09-16
+
+### Added
+
+- **Additional Cloud Access Role types on `v3_15` and `v3_16`.** Refreshed from
+  portal 3.15.13 and 3.16.5, which open the OU and Project cloud-access-role
+  create/update bodies to role types other than User. Six settable fields on
+  `OUCloudAccessRoleCreate` and `ProjectCloudAccessRoleCreate`:
+  `cloud_access_role_type_id` (1 User, 2 Custom Trust, 3 Account, 4 Service),
+  `aws_iam_role_trust_policy`, `aws_trusted_account_numbers`,
+  `aws_trusted_services`, `aws_partition` and `aws_create_instance_profile`.
+  Before this the public API hardcoded every role it created as a User role.
+
+  **`v3_17` does NOT carry these.** The change went to the support branches and
+  has not been forward-ported, so a consumer must gate on the connected Kion
+  version rather than assume newer means newer. Portal decodes with no
+  `DisallowUnknownFields`, so sending the fields to a 3.17 install is accepted,
+  ignored, and answered 200: the role is created as a User role with nothing to
+  react to.
+
+### Changed
+
+- **BREAKING** (`v3_17`): **financial amounts are numbers, not untyped objects.** `amount` on
+  budgets, funding sources, spend plans, line items and project funding now
+  carries `type: number, format: double` and the decimal Go type, matching what
+  `v3_15` and `v3_16` already had. `oasdiff` reports this as 98 breaking changes;
+  it is `v3_17` catching up to the other lanes, not a regression. Only `v3_17`
+  consumers are affected.
+
+## [0.10.0] - 2026-09-11
+
+### Added
+
+- **Kion 3.17 support** (`v3_17`). Generated from `portal/support-3.17.x` into every lane:
+  `github.com/kionsoftware/kion-sdk-go/generated/v3_17`, `kion_sdk.v3_17`, and the
+  `kion-sdk/v3_17` npm subpath.
+
+- **`publish-lane.sh` now fails if a spec reaches a mirror.** Mirrors are customer-facing and
+  ship the generated client, not `openapi3.json` or `swagger.json`. That held only because the
+  specs sit at the monorepo root, outside every lane, so the tracked-file copy never saw them —
+  an accident of layout rather than a guarantee. The check runs against the assembled tree, so
+  it holds however a file got there.
+
+### Removed
+
+- **Kion 3.12 and 3.13 support** (`v3_12`, `v3_13`) — **breaking.** Kion supports the current
+  release plus three back; with 3.17 current that window is 3.14–3.17, and the SDK now ships
+  exactly it. `generated/v3_12`, `generated/v3_13`, `kion_sdk.v3_12`, `kion_sdk.v3_13` and the
+  `kion-sdk/v3_12` / `kion-sdk/v3_13` subpaths are gone from the published mirrors. Consumers
+  still on Kion 3.12 or 3.13 should pin SDK `0.9.x`, which continues to ship both.
+
+  `v3_12` had sat outside the support window since 3.16 with no recorded reason beyond having
+  been in the original 3.12–3.15 set, and `go/README.md` had retroactively described it as
+  "kept until Kion officially ends 3.12 support" — a criterion that could not distinguish it
+  from 3.13, since portal has ended neither. Dropping only 3.13 would have retired the version
+  portal still patches (`support-3.13.x`, last commit 2026-08-21) while keeping the one it has
+  not touched since 2026-05-20. The carve-out is removed rather than moved, so the rule stays
+  mechanical: add the new version, drop the oldest.
+
+### Changed
+
+- **The supported-version set is now declared once.** `SDK_VERSIONS` in the root `Makefile` is the
+  single source: the portal branch for a version is derived (`scripts/portal-branch.sh`) instead of
+  hand-listed in a `case`, and CI reads the list via `make print-versions` rather than keeping three
+  copies of its own. Adding a version was nine coordinated edits; it is now one, plus four registry
+  entries that `make check-registries` names for you if you miss them.
+
+- **`make check-registries`** — new check, run on every MR. Fails if the per-lane version registries
+  (`go/version.go`, the python `_wrapper`, the ts wrapper) or `ts/package.json`'s npm `exports` drift
+  from `SDK_VERSIONS`. These lists sit outside the generated directories on purpose, since those are
+  deleted and recreated on every regeneration, so nothing in the generation path could catch a gap.
+
+- **`ts/build.mjs` discovers versions from `src/`** instead of a hardcoded array. It deliberately
+  skips versions that aren't present (for partial checkouts), so a version missing from that array
+  produced a green build that silently never shipped the package.
+
+## [0.9.0] - 2026-08-11
+
+### Added
+
+- **Azure storage connections for custom billing sources** (`v3_16`). New
+  `CustomBillingSourceAzureConnection` type, plus an `azure_connection` field on
+  `CustomBillingSource`, `CustomBillingSourceCreate` and `CustomBillingSourceUpdate`. Supply
+  *either* `credentialed_billing_source_id` — reusing an existing Azure billing source's tenant
+  credentials — *or* the tenant credential fields (`tenant_app_id`, `tenant_client_secret`,
+  `tenant_cloud_partition_id`), not both, alongside `storage_container`, `storage_prefix` and
+  `storage_primary_endpoint`.
+- `analytics_api_key` on `AnthropicBillingSource` (`v3_16`).
+
+### Changed
+
+- **BREAKING** (`v3_16`): **`POST /v3/billing-source/test-custom` no longer uses the AWS
+  request and response models.** The endpoint had been typed against AWS-specific shapes;
+  portal has given it purpose-built ones on `support-3.16.x`:
+
+      request body    CustomBillingSource         -> CustomBillingSourceTestRequest
+      response `data` AWSBillingSourceTestResults -> CustomBillingSourceTestResults
+
+  Consumers calling this endpoint must change the type they pass:
+
+      Go         PostTestCustomBillingSource(ctx, *CustomBillingSource)
+                   -> PostTestCustomBillingSource(ctx, *CustomBillingSourceTestRequest)
+      Python/TS  body: CustomBillingSource -> body: CustomBillingSourceTestRequest
+
+  The request no longer accepts `id`. The 200 response drops the AWS-only fields
+  `can_access_cur_bucket`, `can_access_focus_account`, `can_access_focus_bucket`,
+  `can_access_mr_bucket` and `cost_and_usage_report_count`.
+
+  `oasdiff` graded this 0 errors / 15 warnings — "possibly breaking" — because it compares
+  properties rather than the identity of the request type. The generated clients change
+  signature, so it is a source break in every lane. Only `v3_16` is affected; `v3_12`–`v3_15`
+  are unchanged.
+
+## [0.8.0] - 2026-08-05
+
+### Fixed
+
+- **BREAKING**: **monetary/decimal fields are now numbers, not strings** — every version, every
+  lane (364 fields: 60/63/63/59/59/60 across `master`, `v3_12`–`v3_16`). Portal models these as
+  shopspring `decimal.Decimal` and sets `decimal.MarshalJSONWithoutQuotes = true`
+  (`src/app/webapi/main.go`), so they go over the wire as bare JSON numbers — `{"amount": 10000}` —
+  while the swagger declared them `type: string` alongside `x-go-type: …decimal.Decimal`. The
+  `x-go-type` carried the real intent, but ogen (and every other generator) keys off `type`.
+
+  The Go client therefore **failed to decode any response containing a decimal**:
+
+      decode field "amount": unexpected byte 49 '1'
+
+  Reading a funding source errored outright; budgets, project funding and spend were affected too.
+  Python and TypeScript typed the same fields as `str`/`string`, silently disagreeing with the
+  server. Found by running the Terraform provider against a live Kion.
+
+  `fixspec` now retypes `string` + `x-go-type=decimal.Decimal` to `number`/`double`
+  (`fixDecimalNumbers`). Consumers reading or writing these fields must switch from
+  string handling to numeric: Go `OptString`→`OptFloat64`, Python `str`→`float`,
+  TypeScript `string`→`number`.
+
+### Changed
+
+- Go lane CI caches `GOCACHE`/`GOMODCACHE`/`GOLANGCI_LINT_CACHE` and installs a pinned prebuilt
+  golangci-lint instead of compiling it from source each run (`quality:go` ≈567s → ≈250s).
+- **BREAKING** (python): `from_dict` now returns `Self` instead of a `TypeVar`-bound `T`, and no
+  longer takes `cls: type[T]`. This comes from regenerating with the pinned
+  openapi-python-client 0.29.0 — the committed client predated that template change. Affects
+  4,167 of 4,291 model files. Note the generator still emits a now-unused
+  `T = TypeVar("T", bound=…)` in each file; that is upstream template debt, not a usage change.
+
+### Added
+
+- The python and ts lanes now regenerate from the shared spec and test the **regenerated** client,
+  as the go lane already did (`generate:python`, `generate:ts`). Nothing previously verified those
+  two lanes could still be generated at all — which is why five of six versions kept the decimal
+  bug after it was fixed for `v3_16`.
+- `mypy` in the python lane, covering the generated client (~3.24M lines), which had no static
+  checking of any kind.
+
+## [0.7.0] - 2026-08-04
+
+### Added
+
+- **Unified release versioning across all lanes.** The repo-root `VERSION` file is
+  now the single source of truth for the SDK family's own version, stamped into every
+  lane by `scripts/set-release.sh` (`make set-release RELEASE=X.Y.Z`): `python/pyproject.toml`,
+  `kion_sdk.__version__`, `ts/package.json`, the TS wrapper `VERSION`, `go/VERSION`, and
+  the new `kion.Version` constant — plus promoting `[Unreleased]` in this file.
+  `make check-release` (enforced by the `quality:release-version` CI job) fails the
+  pipeline if any lane drifts. Note the target is `RELEASE=`, not `VERSION=`, which
+  already means the *Kion API* version in the Makefile.
+- **Kion compatibility metadata.** `kion.KionVersions`/`KionVersion()` (Go),
+  `kion_sdk.KION_VERSIONS`/`kion_version()` (Python), and `KION_VERSIONS`/`kionVersion()`
+  (TypeScript) map each generated sub-package to the Kion release it targets. These live
+  in the hand-written wrappers, outside the regenerated directories, so regeneration
+  cannot wipe them. The SDK's own version stays SemVer for the artifact: one install
+  ships every supported Kion version at once, so no single number could track Kion.
+- **Release tags on the published mirrors.** `scripts/publish-lane.sh` now tags each
+  mirror `vX.Y.Z` at publish. This is what makes Go versioning work at all — `go.mod`
+  has no version field, so `go get <module>@vX.Y.Z` resolves from tags on the repo
+  serving the module. Idempotent: an existing tag is never moved.
+- `make check-versions` + `scripts/check-versions.sh`: warns when portal has a `support-3.NN.x` branch not tracked by `SDK_VERSIONS` (a new Kion version was cut and needs `refresh-spec` + `scaffold-version`), or when `SDK_VERSIONS` lists a version whose portal branch is gone. Cheap `git ls-remote` check — no checkout, no regeneration. `refresh-and-commit` runs it as a non-fatal heads-up before regenerating.
+- **Doc-comments on generated schema types** (all versions). `fixspec` now promotes portal's descriptive schema `title`s (full sentences like "`BudgetCreate` is used to create a new project budget…") to `description` via a new `cleanDescriptiveTitles` pass; ogen emits `description` as Go doc-comments, so the generated types gain ~2,250 lines of documentation. Purely additive — no type, field, signature, or behavior change. This also readies the shared OpenAPI spec for non-Go SDK generators (e.g. Python), which name classes from `title` and would otherwise produce sentence-length class names.
+
+### Changed
+
+- **BREAKING**: `Scope{Create,CriteriaCreate,CriteriaRecord,CriteriaUpdate}.Criteria` change from `*Scope…Criteria` (an empty struct) to `jx.Raw` (raw JSON), and the four `Scope…Criteria` types are removed (`master`, `v3_15`). This is the regeneration finally materializing the already-merged `fixRawJSONFields` handling (freeform "raw JSON" objects modeled as `jx.Raw`) that the committed clients had never been regenerated against. Consumers reading/writing those fields must switch to `jx.Raw`.
+- **BREAKING**: `GetAzureRoleIndex` and `GetAzureRoleIndex2` swap signatures (`master`, `v3_13`, `v3_15`): `GetAzureRoleIndex(ctx)` no longer takes a `params` argument, and `GetAzureRoleIndex2(ctx, params)` now does. Brings the committed client in line with the current portal spec (completing the azure-role signature change 0.6.0 already announced).
+- `make install-ogen` now pins ogen to `v1.20.1` (matching `go.mod`) instead of `@latest`, so local and CI regeneration no longer drift the generated output toward whatever ogen release is newest (`@latest` had reached v1.23.0, a ~26-file diff vs the pinned generator).
+- The derived OpenAPI specs' `info.version` is normalized to `0.0.0` (new `neutralizeInfoVersion` pass) instead of the Go-specific `kion-sdk-go-<v>`. Affects only the gitignored `spec/*/openapi3.json` consumed by future non-Go generators (`kion-sdk-go-<v>` is not a valid PEP 440 version) — **no effect on any committed Go**.
+- The smoke test (`cmd/smoketest`) and integration suite (`integration_test.go`) now target `generated/v3_16` (current release) instead of `v3_15`.
+
+> The two BREAKING items above are source-breaking to the generated Go API and warrant a minor version bump (→ `0.7.0`) at the next release.
+
+## [0.6.0] - 2026-07-06
+
+### Changed
+
+- **BREAKING**: Regenerated every version (`master`, `v3_12`–`v3_16`) with **go-swagger 0.33.1** (bumped from 0.30.5 to match portal and to build/run under Go 1.25 — 0.30.5's type importer panicked with `unsupported version: 2` on Go 1.25 export data). The newer generator re-renders operations differently, so **method signatures change even on API-unchanged branches** — e.g. `GetAzureRoleIndex` no longer takes a `params` argument on v3_12–v3_16. Consumers upgrading across this release should re-check the affected call sites. The regenerated clients now match what each portal branch's source actually declares.
+
+### Added
+
+- New operations captured on **master**: `OU Note` CRUD (`GetOUNote`, `GetOUNotes`, `PostOUNote`, `PatchOUNote`, `DeleteOUNote`), `ScopeCriteria` (`PostScopeCriteria`, `PatchScopeCriteria`, `DeleteScopeCriteria`), `PostAccountLinkage`, `PostGoogleAccountLinkage`, `GetGCPRegionsList`, and `DeleteOU`.
+- New operations captured on **v3_15**: `ScopeCriteria` (`PostScopeCriteria`, `PatchScopeCriteria`, `DeleteScopeCriteria`), `PostAccountLinkage`, `PostGoogleAccountLinkage` — operations present in `support-3.15.x`'s spec that go-swagger 0.30.5 was silently dropping and 0.33.1 now emits.
+
+## [0.5.0] - 2026-07-06
+
+### Changed
+
+- **BREAKING**: Module path reverted from `git.kion.io/kion/delivery-support/dev-tools/terraform-provider/kion-sdk-go` back to `github.com/kionsoftware/kion-sdk-go` (reverses the 0.4.0 rename). The SDK is consumed by the Kion Terraform provider under the `github.com/kionsoftware` import path — matching Kion's other published modules — so the internal-only `git.kion.io` path is reverted. Consumers must update imports back to `github.com/kionsoftware/kion-sdk-go[/generated/<v>]`.
+
+### Added
+
+- `make refresh-and-commit` + `scripts/refresh-and-commit.sh`: regenerate every supported version from its portal support branch and commit only the versions whose generated client actually changed. Change detection is **stateless** — it diffs the regenerated `generated/<v>/` against the committed client (the source of truth; `spec/*` is gitignored), so there is no per-branch SHA to track. Drives the existing `refresh-spec` target, so it runs unchanged from any scheduler. Adds `make print-versions` (exposes `SDK_VERSIONS`); pass `ARGS=--no-commit` to regenerate without committing.
+
+## [0.4.2] - 2026-07-06
+
+### Added
+
+- `make diff-ops` target + `scripts/diff-ops.sh`: lists operations added/removed between two SDK versions from the **committed generated client** (`generated/<v>/oas_client_gen.go`) — no OpenAPI spec or oasdiff required, so it runs on a bare clone with zero setup. Groups added operations by resource family to answer "which operations/resources are new" (e.g. for scaffolding downstream consumers like the Terraform provider). Complements `make diff` (oasdiff on specs), which covers field-level and breaking changes; `diff-ops` is deliberately blind to those. Honors the same `DIFF_FROM`/`DIFF_TO` defaults (v3_15 → v3_16).
+
+## [0.4.1] - 2026-07-06
+
+### Added
+
+- `make diff`, `make diff-breaking`, and `make diff-summary` targets to compare the API between two SDK versions using [oasdiff](https://github.com/oasdiff/oasdiff) (pinned via `OASDIFF_VERSION`, installed with `make install-oasdiff` — intentionally not part of `make deps` since it is an analysis tool, not a codegen dependency). `diff` shows the full changelog, `diff-breaking` only breaking changes, `diff-summary` a high-level count. Defaults to `DIFF_FROM=v3_15 DIFF_TO=v3_16`; override either on the command line to compare any pair (applies to all three targets). A shared `_diff-guard` prerequisite verifies oasdiff is installed and both `spec/<v>/openapi3.json` files exist — since specs are gitignored/derived, it points to `make refresh-spec VERSION=<v>` when one is missing.
+
+## [0.4.0] - 2026-07-06
+
+### Changed
+
+- **BREAKING**: Module path renamed from `github.com/kionsoftware/kion-sdk-go` to `git.kion.io/kion/delivery-support/dev-tools/terraform-provider/kion-sdk-go`. The SDK is an internal-only tool hosted on GitLab and is not published to GitHub, so the module path now matches its actual location and is resolvable with `go get` (set `GOPRIVATE=git.kion.io/*`). Update all imports accordingly.
+
+### Added
+
+- `generated/v3_16` sub-package for Kion 3.16.x, generated from `portal/support-3.16.x`. Kion 3.16 is now the current supported release; `v3_12` through `v3_16` are all active (`v3_12` is carried one release beyond the standard current-plus-3 window). Wired `v3_16` into the Makefile's `SDK_VERSIONS` and `refresh-spec` portal-branch lookup.
+
+## [0.3.0] - 2026-04-23
+
+### Fixed
+
+- `fixspec`: handle real-world null values and paginated Azure list responses. Three spec-vs-reality mismatches were causing ogen's strict decoders to reject real Kion responses:
+  - `aws_iam_permissions_boundary` on `OUCloudAccessRoleFull` and `ProjectCloudAccessRoleFull` is declared as an `IAMPolicy` `$ref` but the API returns `null` for most records. `shouldBeNullable` now recognizes this field, and `fixNullableFields` handles `$ref` properties correctly (nullability applies only to the specific property via `allOf + nullable`, not to the shared target schema).
+  - `AzurePolicyListResponse` / `AzureRoleListResponse` declared `data` as a flat array (the v3 shape), but the `/v4/azure-policy` and `/v4/azure-role` endpoints return `{pagination, total, items}` (v4 paginated). New `fixAzurePaginatedResponses` creates sibling `*Paginated` response schemas and rebinds only the `/v4` operations to them; `/v3` paths keep their original flat response.
+  - Boolean fields and the `pagination` wrapper frequently come back `null` for disabled records or non-paginating endpoints that share the paginated envelope. `shouldBeNullable` now covers all `boolean`-typed schemas and the named `pagination` property; pagination is inlined via `allOf + nullable` in the Azure rewrites to also catch nested inline schemas.
+- Regenerated all supported SDK versions (`master`, `v3_12`, `v3_13`, `v3_14`, `v3_15`) with the above fixes.
+
+## [0.2.0] - 2026-04-09
+
+### Changed
+
+- **BREAKING**: Restructured from a single `generated/` package to per-version sub-packages (`generated/v3_12`, `generated/v3_13`, `generated/v3_14`, `generated/v3_15`, `generated/master`). Consumers must update imports from `github.com/kionsoftware/kion-sdk-go/generated` to a version-specific sub-package (e.g. `github.com/kionsoftware/kion-sdk-go/generated/v3_15`).
+- **BREAKING**: `kion.NewClient` removed from the root package. Each sub-package now exports its own `New` constructor (e.g. `v3_15.New(baseURL, kion.WithAPIKey(...))`). The root `kion` package retains only version-agnostic shared code: `Config`, `Option`, `With*`, error helpers, `ConfigFor`, `NormalizeServerURL`, `BuildHTTPClient`.
+- `auth.go` removed from root package. Each sub-package has its own `bearerAuth` type implementing the ogen-generated `SecuritySource` interface.
+- VERSION file now tracks SDK version (semver) rather than Kion API version.
+
+### Added
+
+- Per-version sub-packages supporting Kion 3.12 through 3.15, plus a `master` development target tracking portal's unreleased API.
+- Multi-version consumer support: a single program can import multiple sub-packages and talk to different Kion instances running different versions simultaneously.
+- Makefile targets: `refresh-spec VERSION=<v>`, `refresh-all`, `scaffold-version VERSION=<v>`, `install-swagger`, `help`.
+- `install-swagger` target compiles go-swagger v0.30.5 from source to work around upstream prebuilt binary bug (portal issue 8218, go-swagger#2897) that produces swagger files with empty definitions and response properties.
+- `scaffold-version` target generates per-version `client.go` and `auth.go` wrappers from the `generated/master/` template via sed substitution.
+- Swagger spec refresh invokes `swagger generate spec` the same way portal's CI does (`devops/portal-ci/jobs/build_swagger.sh`): from `portal/src` with `cloudtamer.io/app/webapi` as the positional import path and an `info.version` template.
+- `cmd/fixspec`: new `sanitizeBrokenRefs` preprocessing step that replaces dangling `$ref` pointers to undefined responses, parameters, and schemas with inline empty objects before kin-openapi parses the swagger. Handles portal support-3.13.x's missing `CloudProviderType` response reference.
+- `cmd/fixspec`: query-string-discriminated paths (e.g. `POST /v3/account?account-type=aws`) are now promoted to synthetic distinct paths under a `/__qs__/` marker instead of being collapsed into a single operation. The old merge logic silently dropped 9 out of 13 query-string operations per version, losing SDK methods like `PostAwsAccount`, `PostAzureSubscription`, and `PostGoogleCloudAccount`.
+- Each sub-package's `client.go` installs a `queryStringRewriter` HTTP RoundTripper that detects the synthetic `/__qs__/` path marker and rewrites URLs to the real query-string form before sending requests to Kion.
+- `cmd/smoketest` and `integration_test.go` placed behind build tags (`smoketest` and `integration` respectively) to isolate per-version schema drift from the default build.
+- `OptStringToFrameworkLegacy` flex helper (in terraform-provider, not the SDK itself — noted here for completeness).
+- Comprehensive README documenting the multi-version layout, Makefile workflow, go-swagger source-build rationale, adding new versions, consumer import patterns, and troubleshooting.
+
+### Fixed
+
+- fixspec no longer collapses query-string-discriminated Swagger paths, which was silently dropping SDK methods across all versions.
+- fixspec now tolerates portal swagger specs with dangling `$ref` pointers instead of failing at the Swagger 2.0 to OpenAPI 3.0 conversion step.
+
+## [0.1.0] - 2026-03-02
+
+### Added
+
+- ogen-generated typed client with 1,289 methods from 654 Kion API operations
+- Spec fixup tool (`cmd/fixspec`) converting Swagger 2.0 to OpenAPI 3.0 with fixes for:
+  - Query-string paths moved to proper query parameters
+  - Circular `$ref` resolution (FeatureFlagData)
+  - Schema name conflict resolution
+  - Operation ID normalization (strip `apiV1`/`APIBeta` prefixes)
+  - Missing response schema backfill
+- Convenience client constructor (`kion.NewClient`) with functional options
+- API key and bearer token authentication via `SecuritySource`
+- `WithAPIKey`, `WithBearerToken`, `WithSkipVerify`, `WithTimeout`, `WithHTTPClient` options
+- Error helpers: `IsNotFound`, `IsAuthError`, `IsConflict`, `StatusCode`
+- VERSION file for tracking target Kion API version (3.15.1)
+- Integration tests covering 18 list endpoints verified against live Kion API
+- Smoke test CLI (`cmd/smoketest`) for quick manual verification

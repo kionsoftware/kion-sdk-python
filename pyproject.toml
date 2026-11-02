@@ -1,0 +1,69 @@
+[project]
+name = "kion-sdk"
+version = "0.14.0"
+description = "Typed Python SDK for the Kion API (multi-version)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [{ name = "Kion" }]
+dependencies = [
+    "httpx>=0.23,<1",
+    "attrs>=22.2",
+    "python-dateutil>=2.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.11"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kion_sdk"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+# Lint only the hand-written wrapper + tests. The per-version sub-packages are
+# machine-generated (openapi-python-client) and are excluded.
+extend-exclude = ["src/kion_sdk/v3_*", "src/kion_sdk/master"]
+
+[tool.mypy]
+# Unlike ruff (which lints only the hand-written wrapper), mypy checks the
+# GENERATED per-version packages too. That is the whole point: nothing else in
+# this lane verified them. openapi-python-client output had no static checking
+# at all, so a generator or spec change could break the client and CI would only
+# notice if the single wrapper test happened to import the broken module.
+#
+# Affordable, measured: 41s for all 3.24M lines / 28,790 files. (The Go lane
+# excludes its generated code from golangci-lint because that costs 416s for
+# comparable volume; mypy here is two orders of magnitude cheaper, so there is
+# no reason to give up the coverage. This matches what tsc already does for the
+# TypeScript lane.)
+#
+# Deliberately NOT strict: these are generated attrs classes, and strict mode
+# would produce thousands of findings nobody can act on — the fix would always
+# be to change the generator.
+files = ["src/kion_sdk", "tests"]
+# Pinned so CI does not silently change behaviour with its interpreter. The
+# package declares requires-python >=3.9, but mypy only supports >=3.10, so this
+# is the closest checkable floor.
+python_version = "3.10"
+
+# openapi-python-client 0.29.0 emits `def __exit__(self, *args: object, ...)` in
+# every generated client.py and forwards those args straight to httpx, whose
+# __exit__/__aexit__ expect (type[BaseException]|None, BaseException|None,
+# TracebackType|None). mypy is right to reject it — 12 errors per generated
+# client — but the fix belongs in the generator's template, not here, and the
+# code works because the args are always a real exception triple at runtime.
+#
+# Scoped as narrowly as possible: only arg-type, only the generated client
+# modules. Everything else in the generated packages stays fully checked. Revisit
+# when OPC_VERSION moves (python/Makefile).
+[[tool.mypy.overrides]]
+module = ["kion_sdk.*.client"]
+disable_error_code = ["arg-type"]
+
